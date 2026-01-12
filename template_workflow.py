@@ -69,19 +69,22 @@ ORIGINAL DOCUMENT:
 {original_text}
 
 INSTRUCTIONS:
-1. Extract the exact value corresponding to the placeholder from the original document.
-2. Use the SAME extracted value for all occurrences of this placeholder.
-3. Preserve all formatting, punctuation, line breaks, and spaces exactly as in the document.
-4. Do NOT change the placeholder name in any way.
-5. If the placeholder represents:
+
+1. Find the exact text in the original document that should replace the placeholder.
+2. The extracted value must match the format exactly as in the document.
+3. Do NOT change the placeholder name or provide any additional text.
+4. If the placeholder represents:
    - a NAME → return only the name
    - a DATE → return only the date
-   - an AMOUNT → return only the amount
-   - a NOTE or paragraph → return the COMPLETE paragraph
-6. If the value cannot be found, return NOT_FOUND.
-7. Return ONLY the value. Do NOT include any explanation, quotes, or extra text.
+   - an AMOUNT → return the numeric and symbol text exactly as it appears
+     • Typical amount patterns include currency symbol + digits + commas
+     • e.g., "$60,000,000"
+   - a NOTE or paragraph → return the full paragraph where this text appears
+5. Use the SAME value for all occurrences of this placeholder in the template.
+6. Preserve punctuation, formatting, spacing, and capitalization exactly.
+7. If the value cannot be found, return NOT_FOUND.
+8. Return ONLY the value. Do NOT include examples, comments, or explanation.
 
-OUTPUT FORMAT:
 Just the extracted value for {placeholder}.
 """
 
@@ -149,19 +152,30 @@ Just the extracted value for {placeholder}.
 
 
 def fill_template(state):
+    from docx import Document
+    import re
+
     doc = Document(state["template_path"])
     resolved = state.get("resolved", {})
 
-    def replace_in_runs(runs, placeholder, value):
-        pattern = re.compile(re.escape(placeholder))
-        for run in runs:
-            if pattern.search(run.text):
-                run.text = pattern.sub(value, run.text)
+    def replace_placeholder(paragraph_or_cell, placeholder, value):
+        """
+        Replace placeholder even if it's split across multiple runs.
+        """
+        # Combine all runs' text into one string
+        full_text = "".join(run.text for run in paragraph_or_cell.runs)
+        if placeholder in full_text:
+            # Replace all occurrences in full text
+            full_text = full_text.replace(placeholder, value)
+            # Clear all runs and set full_text in a single run to preserve replacement
+            for run in paragraph_or_cell.runs:
+                run.text = ""
+            paragraph_or_cell.runs[0].text = full_text
 
     # Replace in paragraphs
     for para in doc.paragraphs:
         for placeholder, value in resolved.items():
-            replace_in_runs(para.runs, placeholder, value)
+            replace_placeholder(para, placeholder, value)
 
     # Replace in tables
     for table in doc.tables:
@@ -169,7 +183,7 @@ def fill_template(state):
             for cell in row.cells:
                 for para in cell.paragraphs:
                     for placeholder, value in resolved.items():
-                        replace_in_runs(para.runs, placeholder, value)
+                        replace_placeholder(para, placeholder, value)
 
     output_path = "output/FILLED_TEMPLATE.docx"
     doc.save(output_path)

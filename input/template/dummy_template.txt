@@ -1,0 +1,2 @@
+Employee Name: {{name}}
+Location: {{location}}

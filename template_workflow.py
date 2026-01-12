@@ -45,40 +45,46 @@ def resolve_with_llm(state):
     resolved = {}
     original_text = "\n".join([b["text"] for b in state["original"]])
 
-    # Use exact placeholder including brackets
+    # Collect all placeholders exactly as in template
     all_placeholders = set()
     for block in state["blocks"]:
         all_placeholders.update(block["placeholders"])
 
     for placeholder in all_placeholders:
-        # Find the first block that contains the placeholder
-        block_text = next(b["text"] for b in state["blocks"] if placeholder in b["text"])
+        # All template lines where this placeholder occurs
+        related_blocks = [b["text"] for b in state["blocks"] if placeholder in b["text"]]
+        block_context = "\n".join(related_blocks)
 
+        # Optimized prompt for legal document extraction
         prompt = f"""
-You are extracting a value from a legal document.
+You are an expert at extracting values from legal and financial documents.
 
-The placeholder below is a LITERAL TOKEN from a template (including angle brackets):
+TARGET PLACEHOLDER:
 {placeholder}
 
-Template line where it appears:
-{block_text}
+Template lines where it appears (may be repeated):
+{block_context}
 
-Original document:
+ORIGINAL DOCUMENT:
 {original_text}
 
-RULES:
-- Return ONLY the value for this placeholder
-- Do NOT modify or remove angle brackets, spacing, or punctuation
-- Copy the value EXACTLY from the original document
-- Preserve line breaks, formatting, and punctuation
-- If it is a NAME → return only the name
-- If it is a DATE → return only the date
-- If it is an AMOUNT → return only the amount
-- If it is a NOTE → return the COMPLETE paragraph
-- If not found, return NOT_FOUND
+INSTRUCTIONS:
+1. Extract the exact value corresponding to the placeholder from the original document.
+2. Use the SAME extracted value for all occurrences of this placeholder.
+3. Preserve all formatting, punctuation, line breaks, and spaces exactly as in the document.
+4. Do NOT change the placeholder name in any way.
+5. If the placeholder represents:
+   - a NAME → return only the name
+   - a DATE → return only the date
+   - an AMOUNT → return only the amount
+   - a NOTE or paragraph → return the COMPLETE paragraph
+6. If the value cannot be found, return NOT_FOUND.
+7. Return ONLY the value. Do NOT include any explanation, quotes, or extra text.
 
-Return ONLY the value. Nothing else.
+OUTPUT FORMAT:
+Just the extracted value for {placeholder}.
 """
+
         response = client.chat.completions.create(
             model=settings.OPEN_AI_MODEL,
             messages=[{"role": "user", "content": prompt}]
@@ -90,6 +96,8 @@ Return ONLY the value. Nothing else.
 
     state["resolved"] = resolved
     return state
+
+
 
 
 # def resolve_with_llm(state):

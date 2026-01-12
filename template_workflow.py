@@ -6,7 +6,7 @@ from config import settings
 from openai import OpenAI
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
-PLACEHOLDER_REGEX = r"<<\s*(.*?)\s*>>"
+PLACEHOLDER_REGEX = r"<{2,3}\s*[^<>]+?\s*>{2,3}"
 
 
 def extract_template(state):
@@ -14,19 +14,17 @@ def extract_template(state):
     blocks = []
 
     for para in doc.paragraphs:
-        if para.text.strip():
-            blocks.append({
-                "text": para.text,
-                "placeholders": re.findall(PLACEHOLDER_REGEX, para.text)
-            })
+        text = para.text.strip()
+        if text:
+            # Extract full placeholder including brackets
+            placeholders = re.findall(PLACEHOLDER_REGEX, text)
+            blocks.append({"text": text, "placeholders": placeholders})
 
     for table in doc.tables:
         for row in table.rows:
-            row_text = " | ".join(c.text for c in row.cells)
-            blocks.append({
-                "text": row_text,
-                "placeholders": re.findall(PLACEHOLDER_REGEX, row_text)
-            })
+            row_text = " | ".join(c.text.strip() for c in row.cells)
+            placeholders = re.findall(PLACEHOLDER_REGEX, row_text)
+            blocks.append({"text": row_text, "placeholders": placeholders})
 
     state["blocks"] = blocks
     return state
@@ -45,56 +43,54 @@ def fetch_original(state):
 
 def resolve_with_llm(state):
     resolved = {}
-
     original_text = "\n".join([b["text"] for b in state["original"]])
 
+    # Use exact placeholder including brackets
+    all_placeholders = set()
     for block in state["blocks"]:
-        for ph in block["placeholders"]:
-            prompt = f"""
+        all_placeholders.update(block["placeholders"])
+
+    for placeholder in all_placeholders:
+        # Find the first block that contains the placeholder
+        block_text = next(b["text"] for b in state["blocks"] if placeholder in b["text"])
+
+        prompt = f"""
 You are extracting a value from a legal document.
 
-The placeholder below is a LITERAL TOKEN from a template.
-You MUST NOT rewrite, normalize, shorten, or modify it.
-Do NOT remove or change angle brackets, spacing, or symbols.
-
-Placeholder (DO NOT MODIFY):
-{ph}
+The placeholder below is a LITERAL TOKEN from a template (including angle brackets):
+{placeholder}
 
 Template line where it appears:
-{block["text"]}
+{block_text}
 
 Original document:
 {original_text}
 
-RULES FOR VALUE:
-- Return ONLY the value (do NOT include the placeholder)
+RULES:
+- Return ONLY the value for this placeholder
+- Do NOT modify or remove angle brackets, spacing, or punctuation
 - Copy the value EXACTLY from the original document
-- Do NOT paraphrase or summarize
+- Preserve line breaks, formatting, and punctuation
 - If it is a NAME → return only the name
 - If it is a DATE → return only the date
 - If it is an AMOUNT → return only the amount
-- If it is a NOTE:
-  - Return ONLY the first complete paragraph
-  - Do NOT merge multiple paragraphs
-- Preserve punctuation inside the value
+- If it is a NOTE → return the COMPLETE paragraph
 - If not found, return NOT_FOUND
 
 Return ONLY the value. Nothing else.
 """
+        response = client.chat.completions.create(
+            model=settings.OPEN_AI_MODEL,
+            messages=[{"role": "user", "content": prompt}]
+        )
 
-
-            response = client.chat.completions.create(
-                model=settings.OPEN_AI_MODEL,
-                messages=[{"role": "user", "content": prompt}]
-            )
-
-            value = response.choices[0].message.content.strip()
-            print(value,"=================================")
-            if value != "NOT_FOUND":
-                resolved[ph] = value
+        value = response.choices[0].message.content.strip()
+        if value != "NOT_FOUND":
+            resolved[placeholder] = value
 
     state["resolved"] = resolved
     return state
+
 
 # def resolve_with_llm(state):
 #     resolved = {}
@@ -146,21 +142,30 @@ Return ONLY the value. Nothing else.
 
 def fill_template(state):
     doc = Document(state["template_path"])
+    resolved = state.get("resolved", {})
 
+    def replace_in_runs(runs, placeholder, value):
+        pattern = re.compile(re.escape(placeholder))
+        for run in runs:
+            if pattern.search(run.text):
+                run.text = pattern.sub(value, run.text)
+
+    # Replace in paragraphs
     for para in doc.paragraphs:
-        for k, v in state["resolved"].items():
-            para.text = para.text.replace(f"<<{k}>>", v)
+        for placeholder, value in resolved.items():
+            replace_in_runs(para.runs, placeholder, value)
 
+    # Replace in tables
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                for k, v in state["resolved"].items():
-                    cell.text = cell.text.replace(f"<<{k}>>", v)
+                for para in cell.paragraphs:
+                    for placeholder, value in resolved.items():
+                        replace_in_runs(para.runs, placeholder, value)
 
-    output = "output/FILLED_TEMPLATE.docx"
-    doc.save(output)
-
-    state["output"] = output
+    output_path = "output/FILLED_TEMPLATE.docx"
+    doc.save(output_path)
+    state["output"] = output_path
     return state
 
 

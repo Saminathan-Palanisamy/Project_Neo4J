@@ -9,8 +9,10 @@ class Settings:
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD")
     NEO4J_DATABASE: str = os.getenv("NEO4J_DATABASE")
     AURA_INSTANCEID: str = os.getenv("AURA_INSTANCEID")
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
-    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL")
-    OPEN_AI_MODEL: str = os.getenv("OPEN_AI_MODEL")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL")
+    # OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+    # OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL")
+    # OPEN_AI_MODEL: str = os.getenv("OPEN_AI_MODEL")
 
 settings = Settings()

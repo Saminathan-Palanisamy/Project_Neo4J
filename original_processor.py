@@ -44,7 +44,7 @@ def extract_original_json(file_path: str) -> dict:
         "doc_id": str(uuid.uuid4()),
         "content": content
     }
-
+#--------------------------------------------------------------------------------------------
 
 def store_original(file_path: str):
     data = extract_original_json(file_path)
@@ -58,3 +58,4 @@ def store_original(file_path: str):
     client.close()
 
     return data["doc_id"]
+#--------------------------------------------------------------------------------------------
